@@ -1,0 +1,25 @@
+# Node.js
+node_modules/
+npm-debug.log*
+
+# Environment variables
+.env
+**/.env
+
+# Build
+dist/
+build/
+
+# Logs
+logs/
+*.log
+
+# VS Code
+.vscode/
+
+# IntelliJ
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
