@@ -1,0 +1,87 @@
+name: Build and Push Docker Images to ECR
+
+on:
+  push:
+    branches:
+      - shopsphere-App
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AWS_REGION: eu-west-1
+  AWS_ACCOUNT_ID: "136609826386"
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::136609826386:role/shopsphere-eks-GitHubActionsECRRole
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and push user-service
+        run: |
+          docker build -t shopsphere-user-service:latest ./user-service
+          docker tag shopsphere-user-service:latest \
+            $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/shopsphere-user-service:latest
+          docker push \
+            $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/shopsphere-user-service:latest
+
+      - name: Build and push product-service
+        run: |
+          docker build -t shopsphere-product-service:latest ./product-service
+          docker tag shopsphere-product-service:latest \
+            $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/shopsphere-product-service:latest
+          docker push \
+            $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/shopsphere-product-service:latest
+
+      - name: Build and push order-service
+        run: |
+          docker build -t shopsphere-order-service:latest ./order-service
+          docker tag shopsphere-order-service:latest \
+            $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/shopsphere-order-service:latest
+          docker push \
+            $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/shopsphere-order-service:latest
+
+      - name: Build and push cart-service
+        run: |
+          docker build -t shopsphere-cart-service:latest ./cart-service
+          docker tag shopsphere-cart-service:latest \
+            $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/shopsphere-cart-service:latest
+          docker push \
+            $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/shopsphere-cart-service:latest
+
+      - name: Build and push notification-service
+        run: |
+          docker build -t shopsphere-notification-service:latest ./notification-service
+          docker tag shopsphere-notification-service:latest \
+            $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/shopsphere-notification-service:latest
+          docker push \
+            $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/shopsphere-notification-service:latest
+
+      - name: Build and push api-gateway
+        run: |
+          docker build -t shopsphere-api-gateway:latest ./api-gateway
+          docker tag shopsphere-api-gateway:latest \
+            $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/shopsphere-api-gateway:latest
+          docker push \
+            $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/shopsphere-api-gateway:latest
+
+      - name: Build and push frontend
+        run: |
+          docker build -t shopsphere-frontend:latest ./frontend
+          docker tag shopsphere-frontend:latest \
+            $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/shopsphere-frontend:latest
+          docker push \
+            $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/shopsphere-frontend:latest
