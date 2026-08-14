@@ -19,70 +19,91 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      # 1. Récupérer le repository
       - name: Checkout repository
         uses: actions/checkout@v4
-      
+
+      # 2. Configurer les credentials AWS via OIDC
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: arn:aws:iam::136609826386:role/shopsphere-eks-GitHubActionsECRRole
           aws-region: ${{ env.AWS_REGION }}
 
+      # 3. Se connecter à ECR
       - name: Login to Amazon ECR
         uses: aws-actions/amazon-ecr-login@v2
 
+      # 4. Activer Docker Buildx
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # 5. Build & Push user-service
       - name: Build and push user-service
-        run: |
-          docker build -t shopsphere-user-service:latest ./user-service
-          docker tag shopsphere-user-service:latest \
-            $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/shopsphere-user-service:latest
-          docker push \
-            $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/shopsphere-user-service:latest
+        uses: docker/build-push-action@v6
+        with:
+          context: ./user-service
+          push: true
+          tags: ${{ env.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/shopsphere-user-service:latest
+          cache-from: type=gha,scope=user-service
+          cache-to: type=gha,mode=max,scope=user-service
 
+      # 6. Build & Push product-service
       - name: Build and push product-service
-        run: |
-          docker build -t shopsphere-product-service:latest ./product-service
-          docker tag shopsphere-product-service:latest \
-            $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/shopsphere-product-service:latest
-          docker push \
-            $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/shopsphere-product-service:latest
+        uses: docker/build-push-action@v6
+        with:
+          context: ./product-service
+          push: true
+          tags: ${{ env.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/shopsphere-product-service:latest
+          cache-from: type=gha,scope=product-service
+          cache-to: type=gha,mode=max,scope=product-service
 
+      # 7. Build & Push order-service
       - name: Build and push order-service
-        run: |
-          docker build -t shopsphere-order-service:latest ./order-service
-          docker tag shopsphere-order-service:latest \
-            $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/shopsphere-order-service:latest
-          docker push \
-            $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/shopsphere-order-service:latest
+        uses: docker/build-push-action@v6
+        with:
+          context: ./order-service
+          push: true
+          tags: ${{ env.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/shopsphere-order-service:latest
+          cache-from: type=gha,scope=order-service
+          cache-to: type=gha,mode=max,scope=order-service
 
+      # 8. Build & Push cart-service
       - name: Build and push cart-service
-        run: |
-          docker build -t shopsphere-cart-service:latest ./cart-service
-          docker tag shopsphere-cart-service:latest \
-            $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/shopsphere-cart-service:latest
-          docker push \
-            $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/shopsphere-cart-service:latest
+        uses: docker/build-push-action@v6
+        with:
+          context: ./cart-service
+          push: true
+          tags: ${{ env.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/shopsphere-cart-service:latest
+          cache-from: type=gha,scope=cart-service
+          cache-to: type=gha,mode=max,scope=cart-service
 
+      # 9. Build & Push notification-service
       - name: Build and push notification-service
-        run: |
-          docker build -t shopsphere-notification-service:latest ./notification-service
-          docker tag shopsphere-notification-service:latest \
-            $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/shopsphere-notification-service:latest
-          docker push \
-            $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/shopsphere-notification-service:latest
+        uses: docker/build-push-action@v6
+        with:
+          context: ./notification-service
+          push: true
+          tags: ${{ env.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/shopsphere-notification-service:latest
+          cache-from: type=gha,scope=notification-service
+          cache-to: type=gha,mode=max,scope=notification-service
 
+      # 10. Build & Push api-gateway
       - name: Build and push api-gateway
-        run: |
-          docker build -t shopsphere-api-gateway:latest ./api-gateway
-          docker tag shopsphere-api-gateway:latest \
-            $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/shopsphere-api-gateway:latest
-          docker push \
-            $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/shopsphere-api-gateway:latest
+        uses: docker/build-push-action@v6
+        with:
+          context: ./api-gateway
+          push: true
+          tags: ${{ env.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/shopsphere-api-gateway:latest
+          cache-from: type=gha,scope=api-gateway
+          cache-to: type=gha,mode=max,scope=api-gateway
 
+      # 11. Build & Push frontend
       - name: Build and push frontend
-        run: |
-          docker build -t shopsphere-frontend:latest ./frontend
-          docker tag shopsphere-frontend:latest \
-            $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/shopsphere-frontend:latest
-          docker push \
-            $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/shopsphere-frontend:latest
+        uses: docker/build-push-action@v6
+        with:
+          context: ./frontend
+          push: true
+          tags: ${{ env.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/shopsphere-frontend:latest
+          cache-from: type=gha,scope=frontend
+          cache-to: type=gha,mode=max,scope=frontend
