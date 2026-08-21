@@ -15,95 +15,135 @@ env:
   AWS_ACCOUNT_ID: "136609826386"
 
 jobs:
-  build-and-push:
+  detect-changes:
     runs-on: ubuntu-latest
 
+    outputs:
+      user-service: ${{ steps.filter.outputs.user-service }}
+      product-service: ${{ steps.filter.outputs.product-service }}
+      order-service: ${{ steps.filter.outputs.order-service }}
+      cart-service: ${{ steps.filter.outputs.cart-service }}
+      notification-service: ${{ steps.filter.outputs.notification-service }}
+      api-gateway: ${{ steps.filter.outputs.api-gateway }}
+      frontend: ${{ steps.filter.outputs.frontend }}
+
     steps:
-      # 1. Récupérer le repository
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # 2. Configurer les credentials AWS via OIDC
+      - name: Detect changed services
+        id: filter
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            user-service:
+              - 'user-service/**'
+            product-service:
+              - 'product-service/**'
+            order-service:
+              - 'order-service/**'
+            cart-service:
+              - 'cart-service/**'
+            notification-service:
+              - 'notification-service/**'
+            api-gateway:
+              - 'api-gateway/**'
+            frontend:
+              - 'frontend/**'
+
+  build-and-push:
+    needs: detect-changes
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: arn:aws:iam::136609826386:role/shopsphere-eks-GitHubActionsECRRole
           aws-region: ${{ env.AWS_REGION }}
 
-      # 3. Se connecter à ECR
       - name: Login to Amazon ECR
         uses: aws-actions/amazon-ecr-login@v2
 
-      # 4. Activer Docker Buildx
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      # 5. Build & Push user-service
+      # USER SERVICE
       - name: Build and push user-service
+        if: needs.detect-changes.outputs.user-service == 'true'
         uses: docker/build-push-action@v6
         with:
           context: ./user-service
           push: true
-          tags: ${{ env.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/shopsphere-user-service:latest
+          tags: ${{ env.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/shopsphere-user-service:${{ github.sha }}
           cache-from: type=gha,scope=user-service
           cache-to: type=gha,mode=max,scope=user-service
 
-      # 6. Build & Push product-service
+      # PRODUCT SERVICE
       - name: Build and push product-service
+        if: needs.detect-changes.outputs.product-service == 'true'
         uses: docker/build-push-action@v6
         with:
           context: ./product-service
           push: true
-          tags: ${{ env.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/shopsphere-product-service:latest
+          tags: ${{ env.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/shopsphere-product-service:${{ github.sha }}
           cache-from: type=gha,scope=product-service
           cache-to: type=gha,mode=max,scope=product-service
 
-      # 7. Build & Push order-service
+      # ORDER SERVICE
       - name: Build and push order-service
+        if: needs.detect-changes.outputs.order-service == 'true'
         uses: docker/build-push-action@v6
         with:
           context: ./order-service
           push: true
-          tags: ${{ env.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/shopsphere-order-service:latest
+          tags: ${{ env.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/shopsphere-order-service:${{ github.sha }}
           cache-from: type=gha,scope=order-service
           cache-to: type=gha,mode=max,scope=order-service
 
-      # 8. Build & Push cart-service
+      # CART SERVICE
       - name: Build and push cart-service
+        if: needs.detect-changes.outputs.cart-service == 'true'
         uses: docker/build-push-action@v6
         with:
           context: ./cart-service
           push: true
-          tags: ${{ env.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/shopsphere-cart-service:latest
+          tags: ${{ env.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/shopsphere-cart-service:${{ github.sha }}
           cache-from: type=gha,scope=cart-service
           cache-to: type=gha,mode=max,scope=cart-service
 
-      # 9. Build & Push notification-service
+      # NOTIFICATION SERVICE
       - name: Build and push notification-service
+        if: needs.detect-changes.outputs.notification-service == 'true'
         uses: docker/build-push-action@v6
         with:
           context: ./notification-service
           push: true
-          tags: ${{ env.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/shopsphere-notification-service:latest
+          tags: ${{ env.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/shopsphere-notification-service:${{ github.sha }}
           cache-from: type=gha,scope=notification-service
           cache-to: type=gha,mode=max,scope=notification-service
 
-      # 10. Build & Push api-gateway
+      # API GATEWAY
       - name: Build and push api-gateway
+        if: needs.detect-changes.outputs.api-gateway == 'true'
         uses: docker/build-push-action@v6
         with:
           context: ./api-gateway
           push: true
-          tags: ${{ env.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/shopsphere-api-gateway:latest
+          tags: ${{ env.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/shopsphere-api-gateway:${{ github.sha }}
           cache-from: type=gha,scope=api-gateway
           cache-to: type=gha,mode=max,scope=api-gateway
 
-      # 11. Build & Push frontend
+      # FRONTEND
       - name: Build and push frontend
+        if: needs.detect-changes.outputs.frontend == 'true'
         uses: docker/build-push-action@v6
         with:
           context: ./frontend
           push: true
-          tags: ${{ env.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/shopsphere-frontend:latest
+          tags: ${{ env.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/shopsphere-frontend:${{ github.sha }}
           cache-from: type=gha,scope=frontend
           cache-to: type=gha,mode=max,scope=frontend

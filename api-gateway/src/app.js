@@ -2,6 +2,7 @@ const express = require("express");
 const cors = require("cors");
 const dotenv = require("dotenv");
 const httpProxy = require("http-proxy");
+const CircuitBreaker = require("opossum");
 
 dotenv.config();
 
@@ -17,61 +18,322 @@ app.get("/", (req, res) => {
     });
 });
 
+/*
+ * Forward requests to microservices
+ * with:
+ * - Timeout
+ * - Retry
+ * - Circuit Breaker
+ */
 function forward(target, prefix) {
-    return (req, res) => {
 
-        // remettre le préfixe supprimé par Express
-        req.url = prefix + req.url;
+    /*
+     * Circuit Breaker function.
+     *
+     * One execution = one attempt to contact
+     * the microservice.
+     */
+    const makeRequest = (req, res) => {
 
-        proxy.once("proxyReq", (proxyReq) => {
+        return new Promise((resolve, reject) => {
 
-            if (
-                req.body &&
-                Object.keys(req.body).length > 0
-            ) {
+            const originalUrl = req.url;
 
-                const bodyData = JSON.stringify(req.body);
+            /*
+             * Express removes /api/products before
+             * calling this middleware.
+             *
+             * We restore the prefix before forwarding.
+             */
+            req.url = prefix + originalUrl;
 
-                proxyReq.setHeader(
-                    "Content-Type",
-                    "application/json"
+            let finished = false;
+
+            function cleanup() {
+
+                proxy.removeListener(
+                    "proxyRes",
+                    onProxyRes
                 );
 
-                proxyReq.setHeader(
-                    "Content-Length",
-                    Buffer.byteLength(bodyData)
+                proxy.removeListener(
+                    "error",
+                    onProxyError
                 );
 
-                proxyReq.write(bodyData);
+                proxy.removeListener(
+                    "proxyReq",
+                    onProxyReq
+                );
+
+                req.url = originalUrl;
             }
 
+            function onProxyRes(proxyRes) {
+
+                if (finished) return;
+
+                finished = true;
+
+                cleanup();
+
+                console.log(
+                    `Proxy response (${target}): ${proxyRes.statusCode}`
+                );
+
+                resolve();
+            }
+
+            function onProxyError(err) {
+
+                if (finished) return;
+
+                finished = true;
+
+                cleanup();
+
+                console.error(
+                    `Proxy error (${target}): ${err.message}`
+                );
+
+                reject(err);
+            }
+
+            function onProxyReq(proxyReq) {
+
+                /*
+                 * Forward JSON body for POST / PUT / PATCH.
+                 */
+                if (
+                    req.body &&
+                    Object.keys(req.body).length > 0 &&
+                    ["POST", "PUT", "PATCH"].includes(req.method)
+                ) {
+
+                    const bodyData =
+                        JSON.stringify(req.body);
+
+                    proxyReq.setHeader(
+                        "Content-Type",
+                        "application/json"
+                    );
+
+                    proxyReq.setHeader(
+                        "Content-Length",
+                        Buffer.byteLength(bodyData)
+                    );
+
+                    proxyReq.write(bodyData);
+                }
+            }
+
+            proxy.once(
+                "proxyRes",
+                onProxyRes
+            );
+
+            proxy.once(
+                "error",
+                onProxyError
+            );
+
+            proxy.once(
+                "proxyReq",
+                onProxyReq
+            );
+
+            /*
+             * Proxy timeout = 5 seconds.
+             */
+            proxy.web(
+                req,
+                res,
+                {
+                    target: target,
+                    timeout: 5000
+                },
+                onProxyError
+            );
         });
+    };
 
-        proxy.web(req, res, { target }, (err) => {
+    /*
+     * Circuit Breaker
+     */
+    const breaker = new CircuitBreaker(
+        makeRequest,
+        {
+            timeout: 6000,
 
-            console.error(err);
+            /*
+             * Circuit opens when 50% of requests
+             * fail.
+             */
+            errorThresholdPercentage: 50,
 
-            res.status(502).json({
-                message: "Bad Gateway"
-            });
+            /*
+             * After 10 seconds, try again.
+             */
+            resetTimeout: 10000,
 
-        });
+            /*
+             * At least 5 requests are required
+             * before calculating the error percentage.
+             */
+            volumeThreshold: 5
+        }
+    );
 
+    /*
+     * Circuit Breaker events
+     */
+
+    breaker.on("open", () => {
+
+        console.error(
+            `Circuit OPEN for ${target}`
+        );
+    });
+
+    breaker.on("halfOpen", () => {
+
+        console.log(
+            `Circuit HALF-OPEN for ${target}`
+        );
+    });
+
+    breaker.on("close", () => {
+
+        console.log(
+            `Circuit CLOSED for ${target}`
+        );
+    });
+
+    /*
+     * Express middleware
+     */
+    return async (req, res) => {
+
+        /*
+         * Retry only GET requests.
+         *
+         * maxRetries = 2 means:
+         *
+         * Attempt 1
+         * Attempt 2
+         * Attempt 3
+         *
+         * So there are 3 total attempts.
+         */
+        const maxRetries =
+            req.method === "GET" ? 2 : 0;
+
+        let attempt = 0;
+
+        while (attempt <= maxRetries) {
+
+            try {
+
+                attempt++;
+
+                console.log(
+                    `${req.method} ${req.originalUrl} -> ${target} | Attempt ${attempt}`
+                );
+
+                await breaker.fire(req, res);
+
+                /*
+                 * Request succeeded.
+                 */
+                return;
+
+            } catch (error) {
+
+                console.error(
+                    `Attempt ${attempt} failed for ${target}: ${error.message}`
+                );
+
+                /*
+                 * All attempts exhausted.
+                 */
+                if (attempt > maxRetries) {
+
+                    if (!res.headersSent) {
+
+                        res.status(502).json({
+                            message:
+                                "Service temporarily unavailable"
+                        });
+                    }
+
+                    return;
+                }
+
+                /*
+                 * Wait 200 ms before retry.
+                 */
+                await new Promise(
+                    resolve =>
+                        setTimeout(resolve, 200)
+                );
+            }
+        }
     };
 }
 
-app.use("/api/users", forward(process.env.USER_SERVICE, "/api/users"));
+/*
+ * Microservices routes
+ */
 
-app.use("/api/products", forward(process.env.PRODUCT_SERVICE, "/api/products"));
+app.use(
+    "/api/users",
+    forward(
+        process.env.USER_SERVICE,
+        "/api/users"
+    )
+);
 
-app.use("/api/orders", forward(process.env.ORDER_SERVICE, "/api/orders"));
+app.use(
+    "/api/products",
+    forward(
+        process.env.PRODUCT_SERVICE,
+        "/api/products"
+    )
+);
 
-app.use("/api/cart", forward(process.env.CART_SERVICE, "/api/cart"));
+app.use(
+    "/api/orders",
+    forward(
+        process.env.ORDER_SERVICE,
+        "/api/orders"
+    )
+);
 
-app.use("/api/notifications", forward(process.env.NOTIFICATION_SERVICE, "/api/notifications"));
+app.use(
+    "/api/cart",
+    forward(
+        process.env.CART_SERVICE,
+        "/api/cart"
+    )
+);
+
+app.use(
+    "/api/notifications",
+    forward(
+        process.env.NOTIFICATION_SERVICE,
+        "/api/notifications"
+    )
+);
+
+/*
+ * Start server
+ */
 
 const PORT = process.env.PORT || 8080;
 
 app.listen(PORT, () => {
-    console.log(`API Gateway started on port ${PORT}`);
+
+    console.log(
+        `API Gateway started on port ${PORT}`
+    );
 });
