@@ -17,32 +17,26 @@ env:
 
 jobs:
 
-  # 1. Detect which services have changed
+  # ============================================================
+  # Detect which services changed
+  # ============================================================
 
   detect-changes:
     name: Detect changes
     runs-on: ubuntu-latest
 
     outputs:
-      user-service: ${{ steps.filter.outputs.user }}
-      product-service: ${{ steps.filter.outputs.product }}
-      order-service: ${{ steps.filter.outputs.order }}
-      cart-service: ${{ steps.filter.outputs.cart }}
-      notification-service: ${{ steps.filter.outputs.notification }}
-      api-gateway: ${{ steps.filter.outputs.gateway }}
-      frontend: ${{ steps.filter.outputs.frontend }}
+      services: ${{ steps.set-services.outputs.services }}
 
     steps:
-
       - name: Checkout repository
         uses: actions/checkout@v4
 
       - name: Detect changed services
-        id: filter
+        id: changes
         uses: dorny/paths-filter@v3
         with:
           filters: |
-
             user:
               - 'user-service/**'
 
@@ -64,88 +58,114 @@ jobs:
             frontend:
               - 'frontend/**'
 
+      - name: Build service matrix
+        id: set-services
+        shell: bash
+        env:
+          USER_CHANGED: ${{ steps.changes.outputs.user }}
+          PRODUCT_CHANGED: ${{ steps.changes.outputs.product }}
+          ORDER_CHANGED: ${{ steps.changes.outputs.order }}
+          CART_CHANGED: ${{ steps.changes.outputs.cart }}
+          NOTIFICATION_CHANGED: ${{ steps.changes.outputs.notification }}
+          GATEWAY_CHANGED: ${{ steps.changes.outputs.gateway }}
+          FRONTEND_CHANGED: ${{ steps.changes.outputs.frontend }}
+        run: |
+          services=()
 
-  # 2. Build and Push only changed services
+          if [ "$USER_CHANGED" = "true" ]; then
+            services+=("user-service")
+          fi
+
+          if [ "$PRODUCT_CHANGED" = "true" ]; then
+            services+=("product-service")
+          fi
+
+          if [ "$ORDER_CHANGED" = "true" ]; then
+            services+=("order-service")
+          fi
+
+          if [ "$CART_CHANGED" = "true" ]; then
+            services+=("cart-service")
+          fi
+
+          if [ "$NOTIFICATION_CHANGED" = "true" ]; then
+            services+=("notification-service")
+          fi
+
+          if [ "$GATEWAY_CHANGED" = "true" ]; then
+            services+=("api-gateway")
+          fi
+
+          if [ "$FRONTEND_CHANGED" = "true" ]; then
+            services+=("frontend")
+          fi
+
+          if [ ${#services[@]} -eq 0 ]; then
+            echo 'services=[]' >> "$GITHUB_OUTPUT"
+          else
+            json=$(printf '%s\n' "${services[@]}" | jq -R . | jq -sc .)
+            echo "services=$json" >> "$GITHUB_OUTPUT"
+          fi
+
+
+  # ============================================================
+  # Build and Push
+  # ============================================================
 
   build-and-push:
     name: Build and Push
     needs: detect-changes
 
+    if: needs.detect-changes.outputs.services != '[]'
+
     runs-on: ubuntu-latest
 
     strategy:
       fail-fast: false
-
       matrix:
-        include:
-
-          - service: user-service
-            output: user-service
-
-          - service: product-service
-            output: product-service
-
-          - service: order-service
-            output: order-service
-
-          - service: cart-service
-            output: cart-service
-
-          - service: notification-service
-            output: notification-service
-
-          - service: api-gateway
-            output: api-gateway
-
-          - service: frontend
-            output: frontend
-
-    # Only run the matrix entry when this service changed
-    if: needs.detect-changes.outputs[matrix.output] == 'true'
+        service: ${{ fromJSON(needs.detect-changes.outputs.services) }}
 
     steps:
-
-      # Checkout
 
       - name: Checkout repository
         uses: actions/checkout@v4
 
-
-      # AWS credentials using OIDC
+      # --------------------------------------------------------
+      # AWS
+      # --------------------------------------------------------
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: arn:aws:iam::136609826386:role/shopsphere-eks-GitHubActionsECRRole
+          role-to-assume: arn:aws:iam::136669826386:role/shopsphere-eks-GitHubActionsECRRole
           aws-region: ${{ env.AWS_REGION }}
-
-
-      # Login to ECR
 
       - name: Login to Amazon ECR
         uses: aws-actions/amazon-ecr-login@v2
 
-
-      # Setup Docker Buildx
+      # --------------------------------------------------------
+      # Docker
+      # --------------------------------------------------------
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-
-      # Calculate next version from ECR
+      # --------------------------------------------------------
+      # Calculate next vX version
+      # --------------------------------------------------------
 
       - name: Calculate next image version
         id: version
         shell: bash
+        env:
+          SERVICE: ${{ matrix.service }}
         run: |
 
           set -e
 
-          REPOSITORY="shopsphere-${{ matrix.service }}"
+          REPOSITORY="shopsphere-${SERVICE}"
 
           echo "Repository: $REPOSITORY"
-
-          echo "Searching existing version tags in ECR..."
 
           TAGS=$(aws ecr describe-images \
             --repository-name "$REPOSITORY" \
@@ -153,10 +173,6 @@ jobs:
             --query 'imageDetails[].imageTags[]' \
             --output text 2>/dev/null || true)
 
-          echo "Existing tags:"
-          echo "$TAGS"
-
-          # Keep only tags exactly matching v<number>
           VERSION=$(echo "$TAGS" \
             | tr '\t' '\n' \
             | grep -E '^v[0-9]+$' \
@@ -170,21 +186,19 @@ jobs:
             NEXT_VERSION=$((VERSION + 1))
           fi
 
-          IMAGE_TAG="v${NEXT_VERSION}"
+          echo "Current version: ${VERSION:-none}"
+          echo "Next version: v${NEXT_VERSION}"
 
-          echo "Next version: $IMAGE_TAG"
+          echo "version=v${NEXT_VERSION}" >> "$GITHUB_OUTPUT"
 
-          echo "version=$IMAGE_TAG" >> "$GITHUB_OUTPUT"
+      # --------------------------------------------------------
+      # Build & Push
+      # --------------------------------------------------------
 
-
-      # Build and push image
-
-      - name: Build and push ${{ matrix.service }}
+      - name: Build and push image
         uses: docker/build-push-action@v6
         with:
-
           context: ./${{ matrix.service }}
-
           push: true
 
           tags: |
@@ -192,17 +206,4 @@ jobs:
             ${{ env.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/shopsphere-${{ matrix.service }}:${{ github.sha }}
 
           cache-from: type=gha,scope=${{ matrix.service }}
-
           cache-to: type=gha,mode=max,scope=${{ matrix.service }}
-
-
-      # Display generated tags
-
-      - name: Display image tags
-        run: |
-
-          echo "=========================================="
-          echo "Service: ${{ matrix.service }}"
-          echo "Version: ${{ steps.version.outputs.version }}"
-          echo "Git SHA: ${{ github.sha }}"
-          echo "=========================================="
