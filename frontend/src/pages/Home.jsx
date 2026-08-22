@@ -85,7 +85,7 @@ export default function Home() {
             </div>
 
             <Link
-                href="/products"
+                to="/products"
                 style={{
                     backgroundColor: "#2563eb",
                     color: "white",
